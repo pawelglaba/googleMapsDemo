@@ -347,3 +347,4 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
      */
     override fun onMarkerClick(p0: Marker) = false
 }
+//
