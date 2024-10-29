@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.AsyncTask
 import android.os.Bundle
+import android.os.Looper
 import android.util.Log
 import android.widget.EditText
 import android.widget.Toast
@@ -16,7 +17,11 @@ import com.android.volley.toolbox.StringRequest
 import com.android.volley.toolbox.Volley
 import com.example.googlemapsapplication.databinding.ActivityMapsBinding
 import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
@@ -60,9 +65,12 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
     // Klient do uzyskiwania lokalizacji użytkownika
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
+    private lateinit var locationTracker: LocationTracker
+
+
     companion object {
         // Stała reprezentująca kod żądania uprawnień lokalizacji
-        private const val LOCATION_REQUEST_CODE = 1
+        private const val LOCATION_REQUEST_CODE = 1000
     }
 
     /**
@@ -75,7 +83,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
         binding = ActivityMapsBinding.inflate(layoutInflater)
         setContentView(binding.root)
         if (!Places.isInitialized()) {
-            Places.initialize(applicationContext, "AIzaSyD3LO9tHoyTtaMJQoGGRFMb2pQnqyxtZuI")
+            Places.initialize(applicationContext, "YOUR_API_KEY")
         }
         placesClient = Places.createClient(this)
         // Uzyskaj fragment mapy i zarejestruj callback, który zostanie wywołany, gdy mapa będzie gotowa do użycia
@@ -85,8 +93,29 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
 
         // Inicjalizacja klienta lokalizacji, który pobiera dane lokalizacyjne użytkownika
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        checkLocationPermission()
 
+
+        locationTracker = LocationTracker(this)
+
+        // Sprawdzenie i uzyskanie uprawnień lokalizacji przed uruchomieniem śledzenia
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), LOCATION_REQUEST_CODE)
+        } else {
+            // Rozpocznij śledzenie lokalizacji
+            locationTracker.startTracking()
+        }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Zatrzymaj śledzenie lokalizacji, gdy Activity jest niszczona
+        locationTracker.stopTracking()
+    }
+
+
+
+    // Sprawdzenie i uzyskanie uprawnień lokalizacji przed uruchomieniem śledzenia
 
     /**
      * Metoda wywoływana, gdy mapa jest gotowa do użycia. Ustawia opcje mapy, takie jak kontrolki zoomu
@@ -346,5 +375,115 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
      * @return Boolean wskazujący, czy zdarzenie kliknięcia zostało obsłużone.
      */
     override fun onMarkerClick(p0: Marker) = false
+
+    private fun checkLocationPermission() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                LOCATION_REQUEST_CODE
+            )
+        } else {
+            // Gdy uprawnienia są już przyznane, możemy od razu uzyskać lokalizację
+            getLastKnownLocation()
+        }
+    }
+    /**
+     * Metoda wywoływana po wyniku żądania uprawnień.
+     * Sprawdza, czy użytkownik przyznał uprawnienia lokalizacyjne.
+     * Jeśli uprawnienia są przyznane, rozpoczyna śledzenie lokalizacji.
+     * Jeśli uprawnienia są odmówione, loguje odpowiedni komunikat.
+     *
+     * @param requestCode Kod żądania, identyfikujący żądanie uprawnień.
+     * @param permissions Tablica uprawnień żądanych przez aplikację.
+     * @param grantResults Tablica wyników dla odpowiadających im uprawnień.
+     */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LOCATION_REQUEST_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                locationTracker.startTracking() // Rozpocznij śledzenie, jeśli uzyskano uprawnienia
+            } else {
+                Log.d("MainActivity", "Uprawnienia lokalizacyjne nie zostały przyznane.")
+            }
+        }
+    }
+    /**
+     * Pobiera ostatnią znaną lokalizację użytkownika, jeśli przyznano odpowiednie uprawnienia.
+     * Jeśli uprawnienie nie zostało przyznane, loguje komunikat i kończy działanie metody.
+     * Jeśli uprawnienie jest przyznane, uzyskuje ostatnią lokalizację i loguje współrzędne.
+     */
+    private fun getLastKnownLocation() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            // Jeśli uprawnienie nie jest przyznane, zakończ wywołanie tej metody.
+            Log.d("Location", "Permission not granted")
+            return
+        }
+
+        // Jeśli uprawnienie jest przyznane, uzyskaj lokalizację
+        fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+            location?.let {
+                // Przykład: wyświetlenie współrzędnych
+                Log.d("Location", "Lat: ${it.latitude}, Lng: ${it.longitude}")
+            }
+        }
+    }
+
+
+    private lateinit var locationCallback: LocationCallback
+    /**
+     * Inicjalizuje cykliczne aktualizacje lokalizacji użytkownika z ustalonym interwałem oraz priorytetem.
+     * Tworzy i konfiguruje LocationRequest, aby odbierać aktualizacje o wysokiej dokładności.
+     * Metoda sprawdza, czy aplikacja posiada uprawnienia lokalizacyjne przed rozpoczęciem aktualizacji.
+     * W przypadku braku uprawnień loguje odpowiedni komunikat.
+     */
+    private fun startLocationUpdates() {
+
+        val locationRequest = LocationRequest.Builder(
+            Priority.PRIORITY_HIGH_ACCURACY, // Ustalanie priorytetu
+            10000 // Interwał w milisekundach
+        ).apply {
+            setMinUpdateIntervalMillis(5000) // Najkrótszy czas odświeżenia w milisekundach
+            setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+        }.build()
+
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                for (location in locationResult.locations) {
+                    // Użyj lokalizacji, np. do aktualizacji interfejsu
+                    Log.d("Location Update", "Lat: ${location.latitude}, Lng: ${location.longitude}")
+                }
+            }
+        }
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+        } else {
+            // Obsługa przypadku, gdy uprawnienie nie jest przyznane
+            Log.d("Location Update", "Permission not granted")
+        }
+    }
+
+    /**
+     * Zatrzymuje aktualizacje lokalizacji użytkownika, gdy aktywność przechodzi w stan wstrzymania.
+     * Usuwa aktualizacje lokalizacji, aby oszczędzać baterię.
+     */
+    override fun onPause() {
+        super.onPause()
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+    }
+
+
+
+
+
+
+
+
+
 }
 //
