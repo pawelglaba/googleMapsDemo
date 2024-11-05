@@ -15,6 +15,7 @@ plugins {
 //    dependencies {
 //        classpath("com.android.tools.build:gradle:8.0.0") // wersja Gradle
 //        classpath("com.google.gms:google-services:4.3.15")  // plugin Google Services (do obsługi API)
+
 //    }
 //}
 
