@@ -1,5 +1,10 @@
 <resources>
     <string name="app_name">GoogleMapsApplication</string>
     <string name="title_activity_maps">MapsActivity</string>
-    <string name="google_maps_key">YOUR_API_KEY</string>
+    <string name="google_maps_key">YOUR API KEY</string>
+    <string-array name="category_array">
+        <item>university</item>
+        <item>restaurant</item>
+        <item>hospital</item>
+    </string-array>
 </resources>

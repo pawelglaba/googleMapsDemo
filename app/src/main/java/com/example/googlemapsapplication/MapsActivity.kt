@@ -5,6 +5,10 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Bundle
 import android.util.Log
+import android.view.View
+import android.widget.AdapterView
+import android.widget.Button
+import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.android.volley.Response
@@ -20,153 +24,154 @@ import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
+import com.google.android.gms.maps.model.Polyline
+import com.google.android.gms.maps.model.PolylineOptions
+import android.widget.SeekBar
+import android.widget.Spinner
+import android.widget.TextView
 import org.json.JSONException
 import org.json.JSONObject
 
 /**
- * Aktywność odpowiedzialna za wyświetlanie mapy Google i pokazywanie pobliskich uniwersytetów.
- * Mapa jest inicjalizowana, gdy aktywność jest tworzona, a po załadowaniu bieżącej lokalizacji użytkownika
- * wyświetla markery dla pobliskich uniwersytetów.
- *
- * Implementuje [OnMapReadyCallback] do inicjalizacji mapy i [GoogleMap.OnMarkerClickListener]
- * do obsługi kliknięć markerów.
+ * Activity responsible for displaying a Google Map and showing nearby places such as universities.
+ * Implements [OnMapReadyCallback] to initialize the map and [GoogleMap.OnMarkerClickListener] to handle marker clicks.
  */
 class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarkerClickListener {
 
-    // Zmienna do przechowywania instancji mapy Google
-    private lateinit var mMap: GoogleMap
-
-    // Powiązanie widoku (binding) z layoutem
+    private lateinit var googleMap: GoogleMap
     private lateinit var binding: ActivityMapsBinding
-
-    // Ostatnia znana lokalizacja użytkownika
-    private lateinit var lastLocation: Location
-
-    // Klient do uzyskiwania lokalizacji użytkownika
+    private lateinit var lastKnownLocation: Location
     private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private var currentRoute: Polyline? = null
 
     companion object {
-        // Stała reprezentująca kod żądania uprawnień lokalizacji
         private const val LOCATION_REQUEST_CODE = 1
     }
 
     /**
-     * Inicjalizuje aktywność. Ustawia fragment mapy i klienta lokalizacji.
-     *
-     * @param savedInstanceState Stan aplikacji zapisany z poprzednich instancji, jeśli istnieje.
+     * Initializes the activity, sets up map fragment, and initializes location client.
+     * @param savedInstanceState The saved state of the activity, if available.
      */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMapsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Uzyskaj fragment mapy i zarejestruj callback, który zostanie wywołany, gdy mapa będzie gotowa do użycia
-        val mapFragment = supportFragmentManager
-            .findFragmentById(R.id.map) as SupportMapFragment
+        val mapFragment = supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment
         mapFragment.getMapAsync(this)
 
-        // Inicjalizacja klienta lokalizacji, który pobiera dane lokalizacyjne użytkownika
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-    }
 
-    /**
-     * Metoda wywoływana, gdy mapa jest gotowa do użycia. Ustawia opcje mapy, takie jak kontrolki zoomu
-     * i nasłuchuje kliknięć markerów. Wywołuje także [setUpMap], aby skonfigurować mapę z lokalizacją użytkownika.
-     *
-     * @param googleMap Instancja GoogleMap, która jest gotowa do manipulacji.
-     */
-    override fun onMapReady(googleMap: GoogleMap) {
-        // Przypisz instancję mapy do zmiennej
-        mMap = googleMap
+        val searchButton = findViewById<Button>(R.id.searchButton)
+        val addressEditText = findViewById<EditText>(R.id.addressEditText)
+        val categorySpinner = findViewById<Spinner>(R.id.categorySpinner)
+        val radiusSeekBar = findViewById<SeekBar>(R.id.radiusSeekBar)
+        val radiusTextView = findViewById<TextView>(R.id.radiusTextView)
 
-        // Włącz kontrolki zoomu na mapie
-        mMap.uiSettings.isZoomControlsEnabled = true
+        radiusSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                radiusTextView.text = "Radius: $progress m"
+            }
 
-        // Zarejestruj nasłuchiwanie kliknięć markerów
-        mMap.setOnMarkerClickListener(this)
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                val selectedCategory = categorySpinner.selectedItem.toString()
+                val radius = radiusSeekBar.progress
+                findNearbyPlaces(selectedCategory, radius)
+            }
+        })
 
-        // Konfiguruj mapę, aby pobierać lokalizację użytkownika
-        setUpMap()
-    }
+        categorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val selectedCategory = categorySpinner.selectedItem.toString()
+                val radius = radiusSeekBar.progress
+                findNearbyPlaces(selectedCategory, radius)
+            }
 
-    /**
-     * Konfiguracja mapy. Sprawdza uprawnienia lokalizacji i, jeśli są przyznane,
-     * ustawia lokalizację użytkownika na mapie oraz dodaje marker w bieżącej lokalizacji.
-     * Wywołuje także [findNearbyUniversities], aby wyszukać pobliskie uniwersytety.
-     */
-    private fun setUpMap() {
-        // Sprawdź, czy aplikacja ma uprawnienia do uzyskiwania lokalizacji
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // Jeśli nie ma uprawnień, żądaj ich od użytkownika
-            ActivityCompat.requestPermissions(
-                this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                LOCATION_REQUEST_CODE
-            )
-            return
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // Włącz funkcję lokalizacji użytkownika na mapie
-        mMap.isMyLocationEnabled = true
-
-        // Pobierz ostatnią znaną lokalizację użytkownika
-        fusedLocationClient.lastLocation.addOnSuccessListener(this) { location ->
-            if (location != null) {
-                // Zapisz ostatnią lokalizację użytkownika
-                lastLocation = location
-
-                // Stwórz obiekt LatLng z aktualnej lokalizacji
-                val currentLatLong = LatLng(location.latitude, location.longitude)
-
-                // Dodaj marker na mapie w bieżącej lokalizacji
-                placeMarkerOnMap(currentLatLong)
-
-                // Przesuń kamerę mapy do bieżącej lokalizacji
-                mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(currentLatLong, 11f))
-
-                // Wyszukaj pobliskie uniwersytety
-                findNearbyUniversities(currentLatLong)
+        searchButton.setOnClickListener {
+            val address = addressEditText.text.toString()
+            if (address.isNotBlank()) {
+                searchLocation(address)
+            } else {
+                val selectedCategory = categorySpinner.selectedItem.toString()
+                val radius = radiusSeekBar.progress
+                findNearbyPlaces(selectedCategory, radius)
             }
         }
     }
 
     /**
-     * Wyszukuje pobliskie uniwersytety za pomocą Google Places API i dodaje markery dla każdego
-     * znalezionego miejsca.
-     *
-     * @param location Bieżąca lokalizacja użytkownika.
+     * Searches for a location by address and places a marker on the map at the found location.
+     * @param address The address to search for.
      */
-    private fun findNearbyUniversities(location: LatLng) {
-        // Zbuduj URL zapytania do Google Places API (Nearby Search)
+    private fun searchLocation(address: String) {
         val apiKey = getString(R.string.google_maps_key)
-        val locationString = "${location.latitude},${location.longitude}"
-        val radius = 5000  // Promień wyszukiwania w metrach
-        val type = "university"
-        val url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=$locationString&radius=$radius&type=$type&key=$apiKey"
+        val url = "https://maps.googleapis.com/maps/api/geocode/json?address=${address.replace(" ", "%20")}&key=$apiKey"
 
-        // Utwórz żądanie HTTP do API
-        val request = object : StringRequest(
-            Method.GET, url,
+        val request = object : StringRequest(Method.GET, url,
             Response.Listener { response ->
                 try {
-                    // Parsuj odpowiedź JSON
                     val jsonObject = JSONObject(response)
                     val results = jsonObject.getJSONArray("results")
 
-                    // Iteracja po wynikach i dodanie markerów na mapie
+                    if (results.length() > 0) {
+                        val location = results.getJSONObject(0)
+                            .getJSONObject("geometry")
+                            .getJSONObject("location")
+                        val lat = location.getDouble("lat")
+                        val lng = location.getDouble("lng")
+
+                        val latLng = LatLng(lat, lng)
+                        googleMap.clear()
+                        googleMap.addMarker(MarkerOptions().position(latLng).title("Search Result"))
+                        googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 15f))
+                    } else {
+                        Log.e("MapsActivity", "No address found")
+                    }
+                } catch (e: JSONException) {
+                    e.printStackTrace()
+                }
+            },
+            Response.ErrorListener { error ->
+                Log.e("MapsActivity", "Error searching address: ${error.message}")
+            }) {}
+
+        Volley.newRequestQueue(this).add(request)
+    }
+
+    /**
+     * Finds nearby places of a given type within a specified radius.
+     * @param type The type of places to search for.
+     * @param radius The search radius in meters.
+     */
+    private fun findNearbyPlaces(type: String, radius: Int) {
+        if (!::lastKnownLocation.isInitialized) {
+            Log.e("MapsActivity", "User location not initialized.")
+            return
+        }
+
+        val apiKey = getString(R.string.google_maps_key)
+        val locationString = "${lastKnownLocation.latitude},${lastKnownLocation.longitude}"
+        val url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=$locationString&radius=$radius&type=$type&key=$apiKey"
+
+        val request = object : StringRequest(Method.GET, url,
+            Response.Listener { response ->
+                try {
+                    val jsonObject = JSONObject(response)
+                    val results = jsonObject.getJSONArray("results")
+                    googleMap.clear()
+
                     for (i in 0 until results.length()) {
                         val place = results.getJSONObject(i)
-                        val latLng = place.getJSONObject("geometry")
-                            .getJSONObject("location")
+                        val latLng = place.getJSONObject("geometry").getJSONObject("location")
                         val lat = latLng.getDouble("lat")
                         val lng = latLng.getDouble("lng")
                         val placeName = place.getString("name")
 
-                        // Dodaj marker dla każdego miejsca na mapie
-                        mMap.addMarker(
+                        googleMap.addMarker(
                             MarkerOptions()
                                 .position(LatLng(lat, lng))
                                 .title(placeName)
@@ -177,34 +182,157 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
                 }
             },
             Response.ErrorListener { error ->
-                // Obsługa błędów
-                Log.e("MapsActivity", "Błąd podczas wyszukiwania: ${error.message}")
+                Log.e("MapsActivity", "Error finding places: ${error.message}")
             }) {}
 
-        // Dodaj żądanie do kolejki
         Volley.newRequestQueue(this).add(request)
     }
 
     /**
-     * Dodaje marker w podanej lokalizacji [LatLng].
-     *
-     * @param currentLatLong Obiekt LatLng zawierający współrzędne do umieszczenia markera.
+     * Called when the map is ready to use. Configures the map and sets up user location.
+     * @param map The GoogleMap instance that is ready for interaction.
      */
-    private fun placeMarkerOnMap(currentLatLong: LatLng) {
-        // Stwórz opcje dla markera
-        val markerOptions = MarkerOptions().position(currentLatLong)
-        markerOptions.title("$currentLatLong")
+    override fun onMapReady(map: GoogleMap) {
+        googleMap = map
+        googleMap.uiSettings.isZoomControlsEnabled = true
+        googleMap.setOnMarkerClickListener(this)
 
-        // Dodaj marker na mapie
-        mMap.addMarker(markerOptions)
+        setUpMap()
     }
 
     /**
-     * Obsługuje kliknięcia markerów. W tym przypadku nie dodaje specjalnych zachowań
-     * dla kliknięcia, więc metoda po prostu zwraca `false`.
-     *
-     * @param p0 Marker, który został kliknięty.
-     * @return Boolean wskazujący, czy zdarzenie kliknięcia zostało obsłużone.
+     * Sets up the map with user location and displays markers for nearby places.
      */
-    override fun onMarkerClick(p0: Marker) = false
+    private fun setUpMap() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                LOCATION_REQUEST_CODE
+            )
+            return
+        }
+
+        googleMap.isMyLocationEnabled = true
+        fusedLocationClient.lastLocation.addOnSuccessListener(this) { location ->
+            if (location != null) {
+                lastKnownLocation = location
+                val currentLatLng = LatLng(location.latitude, location.longitude)
+                placeMarkerOnMap(currentLatLng)
+                googleMap.animateCamera(CameraUpdateFactory.newLatLngZoom(currentLatLng, 11f))
+
+                val defaultCategory = "university"
+                val defaultRadius = 5000
+                findNearbyPlaces(defaultCategory, defaultRadius)
+            }
+        }
+    }
+
+    /**
+     * Adds a marker at a given location on the map.
+     * @param location The location where the marker will be placed.
+     */
+    private fun placeMarkerOnMap(location: LatLng) {
+        val markerOptions = MarkerOptions().position(location).title(location.toString())
+        googleMap.addMarker(markerOptions)
+    }
+
+    /**
+     * Handles marker click events. Displays marker info and draws a route to the marker.
+     * @param marker The clicked marker.
+     * @return Boolean indicating whether the click event was handled.
+     */
+    override fun onMarkerClick(marker: Marker): Boolean {
+        marker.showInfoWindow()
+        currentRoute?.remove()
+        drawRouteToMarker(marker.position)
+        return true
+    }
+
+    /**
+     * Draws a route from the user's location to the specified destination.
+     * @param destination The destination location.
+     */
+    private fun drawRouteToMarker(destination: LatLng) {
+        val origin = LatLng(lastKnownLocation.latitude, lastKnownLocation.longitude)
+
+        val apiKey = getString(R.string.google_maps_key)
+        val url = "https://maps.googleapis.com/maps/api/directions/json?" +
+                "origin=${origin.latitude},${origin.longitude}" +
+                "&destination=${destination.latitude},${destination.longitude}" +
+                "&key=$apiKey"
+
+        val request = object : StringRequest(Method.GET, url,
+            Response.Listener { response ->
+                try {
+                    val jsonObject = JSONObject(response)
+                    val routes = jsonObject.getJSONArray("routes")
+                    if (routes.length() > 0) {
+                        val points = routes.getJSONObject(0)
+                            .getJSONObject("overview_polyline")
+                            .getString("points")
+                        val decodedPath = decodePolyline(points)
+
+                        currentRoute = googleMap.addPolyline(
+                            PolylineOptions()
+                                .addAll(decodedPath)
+                                .color(resources.getColor(R.color.teal_200))
+                                .width(10f)
+                        )
+                    }
+                } catch (e: JSONException) {
+                    e.printStackTrace()
+                }
+            },
+            Response.ErrorListener { error ->
+                Log.e("MapsActivity", "Error retrieving route: ${error.message}")
+            }) {}
+
+        Volley.newRequestQueue(this).add(request)
+    }
+
+    /**
+     * Decodes a polyline string into a list of [LatLng] points.
+     * @param encoded The encoded polyline string.
+     * @return A list of [LatLng] points.
+     */
+
+    private fun decodePolyline(encoded: String): List<LatLng> {
+        val poly = ArrayList<LatLng>()
+        var index = 0
+        val len = encoded.length
+        var lat = 0
+        var lng = 0
+
+        while (index < len) {
+            var b: Int
+            var shift = 0
+            var result = 0
+            do {
+                b = encoded[index++].code - 63
+                result = result or (b and 0x1f shl shift)
+                shift += 5
+            } while (b >= 0x20)
+            val dlat = if (result and 1 != 0) (result shr 1).inv() else result shr 1
+            lat += dlat
+
+            shift = 0
+            result = 0
+            do {
+                b = encoded[index++].code - 63
+                result = result or (b and 0x1f shl shift)
+                shift += 5
+            } while (b >= 0x20)
+            val dlng = if (result and 1 != 0) (result shr 1).inv() else result shr 1
+            lng += dlng
+
+            val p = LatLng(lat.toDouble() / 1E5, lng.toDouble() / 1E5)
+            poly.add(p)
+        }
+
+        return poly
+    }
 }
