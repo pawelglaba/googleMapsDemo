@@ -38,14 +38,33 @@ import org.json.JSONObject
  */
 class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarkerClickListener {
 
+
+    /**lateinit: This means the variable will be initialized later, and you don't need to assign a value immediately.
+     *  If you try to access it before initialization, the app will throw an exception.
+     */
     private lateinit var googleMap: GoogleMap
+
+    /** In Android development, a binding object provides access to the views in your XML layout.
+     *This is automatically generated for the activity_maps.xml layout. It allows you to interact with UI
+     *  elements directly in the code without using findViewById()
+     */
     private lateinit var binding: ActivityMapsBinding
+
+    /**
+     * Represents a geographic location (latitude, longitude, and additional details like accuracy or altitude).
+     * This variable is used to track the user's current or last known position.
+     */
     private lateinit var lastKnownLocation: Location
+    // Declares a variable to manage location requests.
     private lateinit var fusedLocationClient: FusedLocationProviderClient
+
+    //Represents a polyline, which is a series of connected lines (used for drawing routes or paths on the map
     private var currentRoute: Polyline? = null
 
+
     companion object {
-        private const val LOCATION_REQUEST_CODE = 1
+        private const val LOCATION_REQUEST_CODE = 1 // 1 values is arbitrary.
+        // Developers often use small integers to differentiate between multiple types of requests
     }
 
     /**
@@ -54,12 +73,14 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
      */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        //The inflate() method creates an instance of the binding class by connecting it to the layout XML file
         binding = ActivityMapsBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        val test= "test"
         val mapFragment = supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment
+        //This method initializes the map in the SupportMapFragment asynchronously (in the background)
         mapFragment.getMapAsync(this)
 
+        //A part of Google Play Services that provides an efficient and battery-friendly way to get the user's location.
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
         val searchButton = findViewById<Button>(R.id.searchButton)
@@ -148,6 +169,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
      * @param radius The search radius in meters.
      */
     private fun findNearbyPlaces(type: String, radius: Int) {
+        //The double colon :: is used to refer to the lastKnownLocation property itself, rather than its value.
         if (!::lastKnownLocation.isInitialized) {
             Log.e("MapsActivity", "User location not initialized.")
             return
@@ -155,11 +177,22 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
 
         val apiKey = getString(R.string.google_maps_key)
         val locationString = "${lastKnownLocation.latitude},${lastKnownLocation.longitude}"
+        // Constructs a URL to query the Google Places API for nearby places:
         val url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=$locationString&radius=$radius&type=$type&key=$apiKey"
 
+        //Making the HTTP Request
         val request = object : StringRequest(Method.GET, url,
             Response.Listener { response ->
                 try {
+                    /*
+                    JSON (JavaScript Object Notation)
+
+                    JSON is a lightweight data exchange format that is easy for humans to read and
+                    write and easy for machines to parse and generate.
+
+                     It is widely used for data communication between servers and applications,
+                     especially in web and mobile applications.
+                     */
                     val jsonObject = JSONObject(response)
                     val results = jsonObject.getJSONArray("results")
                     googleMap.clear()
@@ -215,7 +248,7 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
             )
             return
         }
-
+        //Purpose: Moves and zooms the camera to focus on the user's current location.
         googleMap.isMyLocationEnabled = true
         fusedLocationClient.lastLocation.addOnSuccessListener(this) { location ->
             if (location != null) {
@@ -311,6 +344,17 @@ class MapsActivity : AppCompatActivity(), OnMapReadyCallback, GoogleMap.OnMarker
             var b: Int
             var shift = 0
             var result = 0
+            /*
+            Why - 63?
+            The encoded polyline uses 6-bit values, represented as readable ASCII characters.
+            To extract the actual data, we need to subtract the offset of 63,
+            which was added during the encoding process.
+
+            b and 0x1f: Extracts the 5 least significant bits from b.
+            The value 0x1f (31 in decimal) is a mask to isolate those bits.
+            b and 0x1f shl shift: These 5 bits are shifted left by shift positions to assemble the final value.
+            result = result or (...): Combines the extracted bits into result using a bitwise OR operation.
+             */
             do {
                 b = encoded[index++].code - 63
                 result = result or (b and 0x1f shl shift)

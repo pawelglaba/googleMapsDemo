@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:map="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     tools:context=".MapsActivity">
 
-    <!-- LinearLayout dla elementów interfejsu -->
+    <!-- LinearLayout for UI elements -->
     <LinearLayout
         android:id="@+id/uiControlsLayout"
         android:layout_width="match_parent"
@@ -16,7 +15,7 @@
         android:padding="8dp"
         android:layout_alignParentTop="true">
 
-        <!-- Pasek wyszukiwania adresu -->
+        <!-- Search Bar-->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -38,7 +37,7 @@
                 android:text="FIND" />
         </LinearLayout>
 
-        <!-- Spinner do wyboru kategorii -->
+        <!-- Spinner  -->
         <Spinner
             android:id="@+id/categorySpinner"
             android:layout_width="match_parent"
@@ -47,7 +46,7 @@
             android:spinnerMode="dropdown"
             android:layout_marginTop="8dp" />
 
-        <!-- TextView wyświetlający aktualny promień -->
+        <!-- Radius TextView  -->
         <TextView
             android:id="@+id/radiusTextView"
             android:layout_width="wrap_content"
@@ -55,7 +54,7 @@
             android:layout_marginTop="8dp"
             android:text="Radius: 5000 m" />
 
-        <!-- Suwak do ustawienia promienia -->
+        <!-- Radius SeekBar -->
         <SeekBar
             android:id="@+id/radiusSeekBar"
             android:layout_width="match_parent"
@@ -64,7 +63,7 @@
             android:progress="5000" />
     </LinearLayout>
 
-    <!-- Fragment mapy -->
+    <!-- Map fragment -->
     <fragment
         android:id="@+id/map"
         android:name="com.google.android.gms.maps.SupportMapFragment"
